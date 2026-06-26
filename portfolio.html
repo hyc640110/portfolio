@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>三部位投資組合模擬器</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/recharts/2.8.0/Recharts.min.js"></script>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: #060d18; font-family: 'Segoe UI', system-ui, sans-serif; }
+  input[type=range] { cursor: pointer; }
+  input[type=number]::-webkit-inner-spin-button,
+  input[type=number]::-webkit-outer-spin-button { opacity: 1; }
+  textarea { font-family: monospace; }
+  ::-webkit-scrollbar { width: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: #1e3a5f; border-radius: 2px; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const { useState, useMemo, useEffect, useCallback } = React;
+const { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip,
+        Legend, ResponsiveContainer, ReferenceLine } = Recharts;
+
+const COLORS = {
+  etf:"#4fc3f7", etfAdd:"#ff9800", bond:"#a5d6a7",
+  cash:"#ffd54f", total:"#ce93d8", cost:"#ef5350", bg:"#060d18",
+};
+const fmt = (v) => {
+  if (Math.abs(v)>=10000000) return `${(v/10000000).toFixed(2)}千萬`;
+  if (Math.abs(v)>=1000000)  return `${(v/1000000).toFixed(2)}百萬`;
+  return `${(v/10000).toFixed(1)}萬`;
+};
+const fmtFull = (v) =>
+  `${(v/10000).toFixed(1).replace(/\B(?=(\d{3})+(?!\d))/g,",")} 萬元`;
+
+const STORAGE_KEY = "portfolio-settings-v2";
+
+function App() {
+  const [shares,          setShares]         = useState(71000);
+  const [sharesInput,     setSharesInput]    = useState("71000");
+  const [price631,        setPrice631]       = useState(40.2);
+  const [price631Input,   setPrice631Input]  = useState("40.2");
+  const [price631Time,    setPrice631Time]   = useState("");
+  const [price631Status,  setPrice631Status] = useState("idle");
+
+  const [sharesBond,      setSharesBond]      = useState(9000);
+  const [sharesBondInput, setSharesBondInput] = useState("9000");
+  const [priceBond,       setPriceBond]       = useState(48.15);
+  const [priceBondInput,  setPriceBondInput]  = useState("48.15");
+  const [priceBondTime,   setPriceBondTime]   = useState("");
+  const [priceBondStatus, setPriceBondStatus] = useState("idle");
+
+  const [cash,      setCash]      = useState(2000000);
+  const [cashInput, setCashInput] = useState("200");
+  const [rate631,   setRate631]   = useState(14);
+  const [rateBond,  setRateBond]  = useState(4.5);
+  const [pct631,    setPct631]    = useState(50);
+  const [pctBond,   setPctBond]   = useState(25);
+  const pctCash = Math.max(0, 100-pct631-pctBond);
+
+  const [addOnEnabled, setAddOnEnabled] = useState(true);
+  const [addOnSource,  setAddOnSource]  = useState("cash");
+  const [addOnAmount,  setAddOnAmount]  = useState(500000);
+  const [addOnDrop,    setAddOnDrop]    = useState(25);
+  const [addOnYear,    setAddOnYear]    = useState(2);
+
+  const [storageMsg, setStorageMsg] = useState("");
+  const [showImport, setShowImport] = useState(false);
+  const [showExport, setShowExport] = useState(false);
+  const [exportText, setExportText] = useState("");
+  const [importText, setImportText] = useState("");
+  const [importMsg,  setImportMsg]  = useState("");
+  const [copyMsg,    setCopyMsg]    = useState("");
+
+  const etf631Val   = price631  * shares;
+  const etfBondVal  = priceBond * sharesBond;
+  const totalAssets = etf631Val + etfBondVal + cash;
+  const init631     = totalAssets * pct631  / 100;
+  const initBond    = totalAssets * pctBond / 100;
+  const initCash    = totalAssets * pctCash / 100;
+  const triggerPrice = (price631*(1-addOnDrop/100)).toFixed(2);
+  const beta = (pct631/100*1.9 + pctBond/100*0.05).toFixed(2);
+
+  const isMobile = /iPhone|iPad|iPod|Android/i.test(navigator.userAgent);
+
+  const applySettings = useCallback((s) => {
+    if (!s) return;
+    if (s.shares     != null){ setShares(s.shares);          setSharesInput(String(s.shares)); }
+    if (s.price631   != null){ setPrice631(s.price631);      setPrice631Input(String(s.price631)); }
+    if (s.sharesBond != null){ setSharesBond(s.sharesBond);  setSharesBondInput(String(s.sharesBond)); }
+    if (s.priceBond  != null){ setPriceBond(s.priceBond);    setPriceBondInput(String(s.priceBond)); }
+    if (s.cash       != null){ setCash(s.cash*10000);        setCashInput(String(s.cash)); }
+    if (s.rate631    != null) setRate631(s.rate631);
+    if (s.rateBond   != null) setRateBond(s.rateBond);
+    if (s.pct631     != null) setPct631(s.pct631);
+    if (s.pctBond    != null) setPctBond(s.pctBond);
+    if (s.addOnEnabled != null) setAddOnEnabled(s.addOnEnabled);
+    if (s.addOnSource  != null) setAddOnSource(s.addOnSource);
+    if (s.addOnAmount  != null) setAddOnAmount(s.addOnAmount*10000);
+    if (s.addOnDrop    != null) setAddOnDrop(s.addOnDrop);
+    if (s.addOnYear    != null) setAddOnYear(s.addOnYear);
+  }, []);
+
+  const getSettings = useCallback(() => ({
+    shares, price631, sharesBond, priceBond, cash: cash/10000,
+    rate631, rateBond, pct631, pctBond,
+    addOnEnabled, addOnSource, addOnAmount: addOnAmount/10000, addOnDrop, addOnYear,
+  }), [shares,price631,sharesBond,priceBond,cash,
+       rate631,rateBond,pct631,pctBond,
+       addOnEnabled,addOnSource,addOnAmount,addOnDrop,addOnYear]);
+
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw){ applySettings(JSON.parse(raw)); setStorageMsg("✓ 已載入上次設定"); setTimeout(()=>setStorageMsg(""),3000); }
+    } catch {}
+  }, []);
+
+  const settings = getSettings();
+  useEffect(() => {
+    const t = setTimeout(() => {
+      try { localStorage.setItem(STORAGE_KEY, JSON.stringify(settings)); } catch {}
+    }, 1000);
+    return () => clearTimeout(t);
+  }, [JSON.stringify(settings)]);
+
+  const fetchStockPrice = useCallback(async (stockNo, stockName, setPrice, setPInput, setTime, setStatus) => {
+    if (isMobile){ setStatus("mobile"); return; }
+    setStatus("loading");
+    try {
+      const res = await fetch("https://api.anthropic.com/v1/messages", {
+        method:"POST", headers:{"Content-Type":"application/json"},
+        body: JSON.stringify({
+          model:"claude-sonnet-4-6", max_tokens:200,
+          system:"你是股價查詢助手。只回覆台灣ETF的收盤價數字，不含任何文字或單位。例如：38.08",
+          tools:[{type:"web_search_20250305",name:"web_search"}],
+          messages:[{role:"user",content:`台灣ETF ${stockNo} ${stockName} 今日收盤價數字`}]
+        })
+      });
+      if (!res.ok) throw new Error();
+      const data = await res.json();
+      const texts = (data.content||[]).filter(b=>b.type==="text").map(b=>b.text).join(" ");
+      const matches = texts.match(/\b(\d{2,3}\.\d{1,2})\b/g) || texts.match(/\b(\d{2,3})\b/g);
+      if (matches) {
+        for (const m of matches) {
+          const p = parseFloat(m);
+          if (p>=10 && p<=500){
+            setPrice(p); setPInput(String(p));
+            const now=new Date();
+            setTime(`${now.getHours()}:${String(now.getMinutes()).padStart(2,"0")} 更新`);
+            setStatus("ok"); return;
+          }
+        }
+      }
+      throw new Error();
+    } catch { setStatus("error"); }
+  }, [isMobile]);
+
+  const fetch631  = useCallback(() => fetchStockPrice("00631L","元大台灣50正2",setPrice631,setPrice631Input,setPrice631Time,setPrice631Status),[fetchStockPrice]);
+  const fetchBond = useCallback(() => fetchStockPrice("00865B","國泰US短期公債",setPriceBond,setPriceBondInput,setPriceBondTime,setPriceBondStatus),[fetchStockPrice]);
+
+  const exportJSON = useCallback(() => {
+    const json = JSON.stringify(getSettings(), null, 2);
+    setExportText(json); setShowExport(v=>!v);
+    try { navigator.clipboard?.writeText(json).then(()=>{ setCopyMsg("✓ 已複製到剪貼簿"); setTimeout(()=>setCopyMsg(""),3000); }).catch(()=>{}); } catch {}
+  }, [getSettings]);
+
+  const importJSON = useCallback(() => {
+    try {
+      applySettings(JSON.parse(importText));
+      setImportMsg("✓ 匯入成功"); setShowImport(false); setImportText("");
+      setTimeout(()=>setImportMsg(""),3000);
+    } catch { setImportMsg("❌ JSON 格式錯誤"); }
+  }, [importText, applySettings]);
+
+  const data = useMemo(() => {
+    return Array.from({length:11},(_,i) => {
+      const v631  = init631  * Math.pow(1+rate631/100,i);
+      const vBond = initBond * Math.pow(1+rateBond/100,i);
+      const cashAfter = addOnEnabled&&addOnSource==="cash" ? Math.max(0,initCash-addOnAmount) : initCash;
+      const vCash = addOnEnabled&&addOnSource==="cash"&&i>=addOnYear ? cashAfter : initCash;
+      const vAdd  = addOnEnabled&&i>=addOnYear ? addOnAmount*Math.pow(1+rate631/100,i-addOnYear) : 0;
+      const totalBase = init631*Math.pow(1+rate631/100,i)+initBond*Math.pow(1+rateBond/100,i)+initCash;
+      return { year:`第${i}年`, "00631L":Math.round(v631), "加碼部位":Math.round(vAdd),
+               "00865B":Math.round(vBond), "現金":Math.round(vCash),
+               total:Math.round(v631+vBond+vCash+vAdd), totalBase:Math.round(totalBase) };
+    });
+  }, [rate631,rateBond,init631,initBond,initCash,addOnEnabled,addOnSource,addOnAmount,addOnDrop,addOnYear]);
+
+  const final=data[10], five=data[5];
+  const totalCost = totalAssets+(addOnEnabled&&addOnSource==="new"?addOnAmount:0);
+  const gain=final.total-totalCost, gainPct=((final.total/totalCost-1)*100).toFixed(0);
+
+  const CustomTooltip = ({active,payload,label}) => {
+    if (!active||!payload?.length) return null;
+    const items=payload.filter(p=>p.dataKey!=="totalBase"&&p.value>0);
+    const sum=items.reduce((s,p)=>s+p.value,0);
+    const base=payload.find(p=>p.dataKey==="totalBase");
+    return (
+      <div style={{background:"#0a1628",border:"1px solid #1e3a5f",borderRadius:10,padding:"12px 16px",fontSize:12,color:"#e2e8f0",minWidth:200}}>
+        <p style={{fontWeight:800,color:"#ce93d8",marginBottom:8}}>{label}</p>
+        {items.map((p,i)=>(
+          <div key={i} style={{display:"flex",justifyContent:"space-between",gap:16,margin:"3px 0",color:p.fill||p.color}}>
+            <span>{p.name}</span><span style={{fontWeight:700}}>{fmtFull(p.value)}</span>
+          </div>
+        ))}
+        <div style={{borderTop:"1px solid rgba(255,255,255,0.1)",marginTop:6,paddingTop:6,display:"flex",justifyContent:"space-between",color:"#ce93d8",fontWeight:800}}>
+          <span>合計</span><span>{fmtFull(sum)}</span>
+        </div>
+        {base&&<div style={{display:"flex",justifyContent:"space-between",color:"#78909c",fontSize:11,marginTop:4}}>
+          <span>不加碼對照</span><span>{fmtFull(base.value)}</span>
+        </div>}
+      </div>
+    );
+  };
+
+  const SliderRow = ({label,color,value,onChange,min,max,step,presets,unit="%"}) => (
+    <div style={{marginBottom:14}}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:5}}>
+        <span style={{fontSize:11,color,fontWeight:600}}>{label}</span>
+        <span style={{background:`${color}22`,border:`1px solid ${color}55`,borderRadius:20,padding:"1px 12px",fontSize:14,fontWeight:800,color}}>{value}{unit}</span>
+      </div>
+      <input type="range" min={min} max={max} step={step} value={value}
+        onChange={e=>onChange(Number(e.target.value))}
+        style={{width:"100%",accentColor:color}}/>
+      {presets&&<div style={{display:"flex",gap:5,marginTop:5,flexWrap:"wrap"}}>
+        {presets.map(p=>(
+          <button key={p.val} onClick={()=>onChange(p.val)} style={{
+            background:value===p.val?`${color}33`:"rgba(255,255,255,0.05)",
+            border:`1px solid ${value===p.val?color:"rgba(255,255,255,0.1)"}`,
+            borderRadius:20,padding:"2px 9px",fontSize:10,color:value===p.val?color:"#78909c",
+            cursor:"pointer",fontWeight:value===p.val?700:400,
+          }}>{p.label}</button>
+        ))}
+      </div>}
+    </div>
+  );
+
+  const TabBtn = ({active,color,onClick,children}) => (
+    <button onClick={onClick} style={{
+      background:active?`${color}33`:"rgba(255,255,255,0.05)",
+      border:`1px solid ${active?color:"rgba(255,255,255,0.1)"}`,
+      borderRadius:20,padding:"4px 14px",fontSize:11,
+      color:active?color:"#78909c",cursor:"pointer",fontWeight:active?700:400,
+    }}>{children}</button>
+  );
+
+  const PriceInput = ({label,color,priceInput,setPriceInput,price,setPrice,time,status,onFetch,sharesVal,marketVal}) => {
+    const statusUI = {
+      idle:null,
+      loading:<span style={{color:"#ffcc02"}}>⏳ 查詢中...</span>,
+      ok:<span style={{color:"#4caf50"}}>● {time}</span>,
+      error:<span style={{color:"#ef9a9a"}}>❌ 查詢失敗，請手動輸入</span>,
+      mobile:<span style={{color:"#ffb74d"}}>📱 請手動輸入</span>,
+    };
+    return (
+      <div>
+        <div style={{fontSize:10,color:"#78909c",marginBottom:5}}>{label} 股價 {statusUI[status]}</div>
+        <div style={{display:"flex",gap:6}}>
+          <input type="text" value={priceInput}
+            onChange={e=>setPriceInput(e.target.value)}
+            onBlur={e=>{ const v=parseFloat(e.target.value); if(!isNaN(v)&&v>0){setPrice(v);setPriceInput(String(v));}else setPriceInput(String(price)); }}
+            style={{flex:1,background:"rgba(255,255,255,0.07)",border:`1px solid ${color}55`,borderRadius:8,padding:"6px 10px",color,fontSize:14,fontWeight:700,outline:"none"}}/>
+          <button onClick={onFetch} disabled={status==="loading"} title="更新股價" style={{
+            background:status==="loading"?"rgba(255,255,255,0.05)":`${color}22`,
+            border:`1px solid ${color}44`,borderRadius:8,padding:"6px 10px",color,
+            cursor:status==="loading"?"default":"pointer",fontSize:16,flexShrink:0,
+            opacity:isMobile?0.4:1,
+          }}>🔄</button>
+        </div>
+        <div style={{fontSize:10,color:"#546e7a",marginTop:3}}>
+          {sharesVal.toLocaleString()} 股 × {price} = <span style={{color}}>{fmt(marketVal)}</span>
+        </div>
+      </div>
+    );
+  };
+
+  return (
+    <div style={{minHeight:"100vh",background:`linear-gradient(160deg,${COLORS.bg} 0%,#0d1f35 60%,${COLORS.bg} 100%)`,color:"#e2e8f0",padding:"18px 12px 40px"}}>
+
+      {/* Header */}
+      <div style={{textAlign:"center",marginBottom:14}}>
+        <div style={{display:"inline-flex",gap:6,marginBottom:8,flexWrap:"wrap",justifyContent:"center"}}>
+          {[{l:"00631L",c:COLORS.etf},{l:"00865B",c:COLORS.bond},{l:"現金",c:COLORS.cash},{l:"大跌加碼",c:COLORS.etfAdd}].map(t=>(
+            <span key={t.l} style={{background:`${t.c}22`,border:`1px solid ${t.c}55`,borderRadius:20,padding:"2px 10px",fontSize:10,fontWeight:700,color:t.c}}>{t.l}</span>
+          ))}
+        </div>
+        <h1 style={{fontSize:20,fontWeight:800,margin:"0 0 3px",color:"#fff"}}>三部位＋大跌加碼 · 十年資產模擬</h1>
+        <p style={{fontSize:11,color:"#546e7a",margin:0}}>
+          總資產 <span style={{color:COLORS.total,fontWeight:700}}>{fmt(totalAssets)}</span>　Beta <span style={{color:"#ffcc80",fontWeight:700}}>{beta}</span>
+        </p>
+        {isMobile&&<div style={{marginTop:6,display:"inline-block",background:"rgba(255,183,77,0.15)",border:"1px solid rgba(255,183,77,0.4)",borderRadius:8,padding:"4px 12px",fontSize:11,color:"#ffb74d"}}>
+          📱 手機模式：股價請手動輸入，設定自動儲存
+        </div>}
+      </div>
+
+      {/* 工具列 */}
+      <div style={{display:"flex",gap:8,maxWidth:640,margin:"0 auto 12px",alignItems:"center",flexWrap:"wrap"}}>
+        {storageMsg&&<span style={{fontSize:11,color:"#4caf50",fontWeight:600}}>{storageMsg}</span>}
+        {importMsg&&<span style={{fontSize:11,color:importMsg.startsWith("✓")?"#4caf50":"#ef5350",fontWeight:600}}>{importMsg}</span>}
+        {copyMsg&&<span style={{fontSize:11,color:"#ce93d8"}}>{copyMsg}</span>}
+        <div style={{marginLeft:"auto",display:"flex",gap:6}}>
+          <button onClick={exportJSON} style={{background:"rgba(206,147,216,0.15)",border:"1px solid rgba(206,147,216,0.4)",borderRadius:20,padding:"4px 14px",fontSize:11,color:"#ce93d8",cursor:"pointer",fontWeight:600}}>📋 匯出設定</button>
+          <button onClick={()=>{setShowImport(v=>!v);setImportMsg("");}} style={{background:"rgba(206,147,216,0.15)",border:"1px solid rgba(206,147,216,0.4)",borderRadius:20,padding:"4px 14px",fontSize:11,color:"#ce93d8",cursor:"pointer",fontWeight:600}}>{showImport?"✕ 取消":"📂 匯入設定"}</button>
+        </div>
+      </div>
+      {showExport&&<div style={{background:"rgba(206,147,216,0.07)",border:"1px solid rgba(206,147,216,0.25)",borderRadius:12,padding:"12px 14px",maxWidth:640,margin:"0 auto 12px"}}>
+        <div style={{fontSize:11,color:"#ce93d8",marginBottom:6}}>📋 複製以下 JSON，傳到手機後貼入「匯入設定」：</div>
+        <textarea readOnly value={exportText} onFocus={e=>e.target.select()}
+          style={{width:"100%",height:120,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(206,147,216,0.3)",borderRadius:8,padding:"8px",color:"#a5d6a7",fontSize:11,resize:"vertical",outline:"none"}}/>
+        <div style={{fontSize:10,color:"#78909c",marginTop:4}}>點文字框即可全選 → 長按複製</div>
+      </div>}
+      {showImport&&<div style={{background:"rgba(206,147,216,0.07)",border:"1px solid rgba(206,147,216,0.25)",borderRadius:12,padding:"12px 14px",maxWidth:640,margin:"0 auto 12px"}}>
+        <div style={{fontSize:11,color:"#ce93d8",marginBottom:8}}>貼上先前匯出的 JSON 設定：</div>
+        <textarea value={importText} onChange={e=>setImportText(e.target.value)}
+          placeholder='{"shares":71000,"price631":40.2,...}'
+          style={{width:"100%",height:80,background:"rgba(255,255,255,0.06)",border:"1px solid rgba(206,147,216,0.3)",borderRadius:8,padding:"8px",color:"#e2e8f0",fontSize:11,resize:"vertical",outline:"none"}}/>
+        <button onClick={importJSON} style={{marginTop:8,background:"rgba(206,147,216,0.25)",border:"1px solid rgba(206,147,216,0.5)",borderRadius:20,padding:"5px 18px",fontSize:12,color:"#ce93d8",cursor:"pointer",fontWeight:700}}>套用設定</button>
+      </div>}
+
+      {/* 持股設定 */}
+      <div style={{background:"rgba(79,195,247,0.06)",border:"1px solid rgba(79,195,247,0.25)",borderRadius:14,padding:"16px",maxWidth:640,margin:"0 auto 14px"}}>
+        <div style={{fontSize:11,color:COLORS.etf,fontWeight:700,marginBottom:12}}>📊 持股設定</div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+          <div>
+            <div style={{fontSize:10,color:"#78909c",marginBottom:5}}>00631L 持股數</div>
+            <input type="number" value={sharesInput}
+              onChange={e=>{setSharesInput(e.target.value);const n=parseInt(e.target.value);if(!isNaN(n)&&n>=0)setShares(n);}}
+              style={{width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(79,195,247,0.3)",borderRadius:8,padding:"6px 10px",color:"#fff",fontSize:14,fontWeight:700,outline:"none"}}/>
+          </div>
+          <PriceInput label="00631L" color={COLORS.etf} priceInput={price631Input} setPriceInput={setPrice631Input}
+            price={price631} setPrice={setPrice631} time={price631Time} status={price631Status} onFetch={fetch631}
+            sharesVal={shares} marketVal={etf631Val}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10,marginBottom:12}}>
+          <div>
+            <div style={{fontSize:10,color:"#78909c",marginBottom:5}}>00865B 持股數</div>
+            <input type="number" value={sharesBondInput}
+              onChange={e=>{setSharesBondInput(e.target.value);const n=parseInt(e.target.value);if(!isNaN(n)&&n>=0)setSharesBond(n);}}
+              style={{width:"100%",background:"rgba(255,255,255,0.07)",border:"1px solid rgba(165,214,167,0.3)",borderRadius:8,padding:"6px 10px",color:"#fff",fontSize:14,fontWeight:700,outline:"none"}}/>
+          </div>
+          <PriceInput label="00865B" color={COLORS.bond} priceInput={priceBondInput} setPriceInput={setPriceBondInput}
+            price={priceBond} setPrice={setPriceBond} time={priceBondTime} status={priceBondStatus} onFetch={fetchBond}
+            sharesVal={sharesBond} marketVal={etfBondVal}/>
+        </div>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:10}}>
+          <div>
+            <div style={{fontSize:10,color:"#78909c",marginBottom:5}}>現金（萬元）</div>
+            <div style={{display:"flex",alignItems:"center",gap:4}}>
+              <input type="number" value={cashInput}
+                onChange={e=>{setCashInput(e.target.value);const v=parseFloat(e.target.value);if(!isNaN(v)&&v>=0)setCash(v*10000);}}
+                style={{flex:1,background:"rgba(255,255,255,0.07)",border:"1px solid rgba(255,213,79,0.3)",borderRadius:8,padding:"6px 10px",color:COLORS.cash,fontSize:14,fontWeight:700,outline:"none"}}/>
+              <span style={{fontSize:11,color:"#78909c",flexShrink:0}}>萬</span>
+            </div>
+          </div>
+          <div style={{display:"flex",flexDirection:"column",justifyContent:"flex-end",paddingBottom:2}}>
+            <div style={{fontSize:10,color:"#546e7a"}}>總資產</div>
+            <div style={{fontSize:18,fontWeight:800,color:COLORS.total}}>{fmt(totalAssets)}</div>
+            <div style={{fontSize:10,color:"#546e7a"}}>631L {fmt(etf631Val)} ＋ 865B {fmt(etfBondVal)} ＋ 現金 {fmt(cash)}</div>
+          </div>
+        </div>
+      </div>
+
+      {/* 配置條 */}
+      <div style={{display:"flex",gap:8,maxWidth:640,margin:"0 auto 14px",background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:12,padding:"12px 14px",alignItems:"center",flexWrap:"wrap"}}>
+        <div style={{flex:1,minWidth:160}}>
+          <div style={{fontSize:10,color:"#546e7a",marginBottom:6}}>配置分佈</div>
+          <div style={{display:"flex",height:12,borderRadius:6,overflow:"hidden",gap:2}}>
+            <div style={{flex:pct631,background:COLORS.etf,borderRadius:"6px 0 0 6px"}}/>
+            <div style={{flex:pctBond,background:COLORS.bond}}/>
+            {pctCash>0&&<div style={{flex:pctCash,background:COLORS.cash,borderRadius:"0 6px 6px 0"}}/>}
+          </div>
+          <div style={{display:"flex",gap:10,marginTop:6,fontSize:10,flexWrap:"wrap"}}>
+            {[{l:`00631L ${pct631}%`,c:COLORS.etf,v:init631},{l:`00865B ${pctBond}%`,c:COLORS.bond,v:initBond},{l:`現金 ${pctCash}%`,c:COLORS.cash,v:initCash}].map(x=>(
+              <span key={x.l} style={{color:x.c}}>{x.l} <span style={{color:"#78909c"}}>({fmt(x.v)})</span></span>
+            ))}
+          </div>
+        </div>
+        <div style={{textAlign:"right",fontSize:10,color:"#546e7a"}}>
+          <div>組合Beta</div>
+          <div style={{fontSize:22,fontWeight:800,color:beta>1.2?"#ff8a65":"#a5d6a7"}}>{beta}</div>
+          <div style={{fontSize:9}}>{beta>1.4?"積極型":beta>0.8?"穩健型":"保守型"}</div>
+        </div>
+      </div>
+
+      {/* 控制面板 */}
+      <div style={{background:"rgba(255,255,255,0.03)",border:"1px solid rgba(255,255,255,0.07)",borderRadius:14,padding:"16px",maxWidth:640,margin:"0 auto 14px"}}>
+        <div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
+          <div>
+            <div style={{fontSize:11,color:"#90caf9",fontWeight:700,marginBottom:10}}>📈 年化報酬率</div>
+            <SliderRow label="00631L" color={COLORS.etf} value={rate631} onChange={setRate631} min={6} max={22} step={1}
+              presets={[{label:"10%",val:10},{label:"13%",val:13},{label:"14%",val:14},{label:"16%",val:16}]}/>
+            <SliderRow label="00865B" color={COLORS.bond} value={rateBond} onChange={setRateBond} min={2} max={8} step={0.5}
+              presets={[{label:"3%",val:3},{label:"4.5%",val:4.5},{label:"6%",val:6}]}/>
+          </div>
+          <div>
+            <div style={{fontSize:11,color:"#ce93d8",fontWeight:700,marginBottom:10}}>⚖️ 配置比例</div>
+            <SliderRow label="00631L 佔比" color={COLORS.etf} value={pct631} onChange={setPct631} min={20} max={80} step={5}
+              presets={[{label:"40%",val:40},{label:"50%",val:50},{label:"60%",val:60}]}/>
+            <SliderRow label="00865B 佔比" color={COLORS.bond} value={pctBond} onChange={v=>setPctBond(Math.min(v,100-pct631))} min={0} max={40} step={5}
+              presets={[{label:"15%",val:15},{label:"25%",val:25},{label:"30%",val:30}]}/>
+            <div style={{fontSize:10,color:COLORS.cash}}>現金自動：<strong>{pctCash}%（{fmt(initCash)}）</strong></div>
+          </div>
+        </div>
+      </div>
+
+      {/* 大跌加碼 */}
+      <div style={{background:"rgba(255,152,0,0.06)",border:"1px solid rgba(255,152,0,0.25)",borderRadius:14,padding:"16px",maxWidth:640,margin:"0 auto 14px"}}>
+        <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:12}}>
+          <span style={{fontSize:11,color:COLORS.etfAdd,fontWeight:700}}>📉 大跌加碼（僅 00631L）</span>
+          <button onClick={()=>setAddOnEnabled(v=>!v)} style={{
+            background:addOnEnabled?"rgba(255,152,0,0.25)":"rgba(255,255,255,0.06)",
+            border:`1px solid ${addOnEnabled?COLORS.etfAdd:"rgba(255,255,255,0.15)"}`,
+            borderRadius:20,padding:"3px 14px",fontSize:11,
+            color:addOnEnabled?COLORS.etfAdd:"#78909c",cursor:"pointer",fontWeight:700,
+          }}>{addOnEnabled?"✓ 啟用":"關閉"}</button>
+        </div>
+        {addOnEnabled&&<div style={{display:"grid",gridTemplateColumns:"1fr 1fr",gap:"0 20px"}}>
+          <div>
+            <div style={{fontSize:10,color:"#78909c",marginBottom:6}}>資金來源</div>
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              <TabBtn active={addOnSource==="cash"} color={COLORS.etfAdd} onClick={()=>setAddOnSource("cash")}>從現金扣除</TabBtn>
+              <TabBtn active={addOnSource==="new"}  color={COLORS.etfAdd} onClick={()=>setAddOnSource("new")}>額外新增</TabBtn>
+            </div>
+            <SliderRow label="加碼金額" color={COLORS.etfAdd} value={addOnAmount/10000} unit="萬" onChange={v=>setAddOnAmount(v*10000)} min={20} max={200} step={10}
+              presets={[{label:"50萬",val:50},{label:"100萬",val:100},{label:"150萬",val:150}]}/>
+            {addOnSource==="cash"&&addOnAmount>initCash&&<div style={{fontSize:10,color:"#ef5350",marginTop:-8,marginBottom:8}}>⚠️ 超過現金部位 {fmt(initCash)}</div>}
+          </div>
+          <div>
+            <SliderRow label={`觸發跌幅（≈${triggerPrice}元）`} color="#ef9a9a" value={addOnDrop} onChange={setAddOnDrop} min={10} max={40} step={5}
+              presets={[{label:"-15%",val:15},{label:"-25%",val:25},{label:"-35%",val:35}]}/>
+            <SliderRow label="發生在第幾年" color="#b39ddb" value={addOnYear} onChange={setAddOnYear} min={1} max={5} step={1} unit="年"
+              presets={[{label:"第1年",val:1},{label:"第2年",val:2},{label:"第3年",val:3}]}/>
+          </div>
+        </div>}
+      </div>
+
+      {/* 圖表 */}
+      <div style={{background:"rgba(255,255,255,0.02)",border:"1px solid rgba(255,255,255,0.06)",borderRadius:14,padding:"14px 4px 8px",maxWidth:640,margin:"0 auto 14px"}}>
+        <ResponsiveContainer width="100%" height={300}>
+          <AreaChart data={data} margin={{top:8,right:10,left:4,bottom:0}}>
+            <defs>
+              {[{id:"g631",c:COLORS.etf},{id:"gAdd",c:COLORS.etfAdd},{id:"gBond",c:COLORS.bond},{id:"gCash",c:COLORS.cash}].map(g=>(
+                <linearGradient key={g.id} id={g.id} x1="0" y1="0" x2="0" y2="1">
+                  <stop offset="5%"  stopColor={g.c} stopOpacity={0.3}/>
+                  <stop offset="95%" stopColor={g.c} stopOpacity={0.03}/>
+                </linearGradient>
+              ))}
+            </defs>
+            <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)"/>
+            <XAxis dataKey="year" tick={{fill:"#546e7a",fontSize:10}} axisLine={false} tickLine={false}/>
+            <YAxis tickFormatter={fmt} tick={{fill:"#546e7a",fontSize:10}} axisLine={false} tickLine={false} width={52}/>
+            <Tooltip content={<CustomTooltip/>}/>
+            <Legend wrapperStyle={{fontSize:10,paddingTop:6}} formatter={v=><span style={{color:"#90a4ae"}}>{v}</span>}/>
+            <ReferenceLine y={totalAssets} stroke={COLORS.cost} strokeDasharray="4 3" strokeWidth={1.2}
+              label={{value:"原始成本",fill:"#ef9a9a",fontSize:9,position:"insideTopLeft"}}/>
+            {addOnEnabled&&<ReferenceLine x={`第${addOnYear}年`} stroke={COLORS.etfAdd} strokeDasharray="3 3" strokeWidth={1}
+              label={{value:"加碼",fill:"#ffb74d",fontSize:9,position:"insideTopRight"}}/>}
+            <Area type="monotone" dataKey="00631L" stackId="1" name="00631L" stroke={COLORS.etf} fill="url(#g631)" strokeWidth={2}/>
+            {addOnEnabled&&<Area type="monotone" dataKey="加碼部位" stackId="1" name="加碼部位(00631L)" stroke={COLORS.etfAdd} fill="url(#gAdd)" strokeWidth={2}/>}
+            <Area type="monotone" dataKey="00865B" stackId="1" name="00865B" stroke={COLORS.bond} fill="url(#gBond)" strokeWidth={2}/>
+            <Area type="monotone" dataKey="現金" stackId="1" name="現金" stroke={COLORS.cash} fill="url(#gCash)" strokeWidth={1.5}/>
+          </AreaChart>
+        </ResponsiveContainer>
+      </div>
+
+      {/* 結果卡片 */}
+      <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8,maxWidth:640,margin:"0 auto 14px"}}>
+        {[
+          {label:"十年後（含加碼）",value:fmt(final.total),sub:`+${fmt(gain)} (+${gainPct}%)`,color:COLORS.total,
+           detail:addOnEnabled?`加碼效益 +${fmt(final.total-final.totalBase)}`:`00631L ${fmt(final["00631L"])}`},
+          {label:"五年後（含加碼）",value:fmt(five.total),
+           sub:`+${fmt(five.total-totalAssets)} (+${((five.total/totalAssets-1)*100).toFixed(0)}%)`,
+           color:"#81d4fa",detail:`不加碼對照 ${fmt(five.totalBase)}`},
+          {label:"組合 Beta",value:beta,sub:beta>1.4?"積極型":beta>0.8?"穩健型":"保守型",
+           color:beta>1.4?"#ff8a65":"#a5d6a7",detail:"00631L×1.9＋00865B×0.05"},
+        ].map(c=>(
+          <div key={c.label} style={{background:`${c.color}11`,border:`1px solid ${c.color}33`,borderRadius:12,padding:"10px 8px",textAlign:"center"}}>
+            <div style={{fontSize:9,color:"#78909c",marginBottom:3}}>{c.label}</div>
+            <div style={{fontSize:18,fontWeight:800,color:"#fff"}}>{c.value}</div>
+            <div style={{fontSize:10,color:"#4caf50",margin:"3px 0"}}>{c.sub}</div>
+            <div style={{fontSize:9,color:"#546e7a",lineHeight:1.4}}>{c.detail}</div>
+          </div>
+        ))}
+      </div>
+
+      <p style={{textAlign:"center",fontSize:10,color:"#37474f",maxWidth:640,margin:"0 auto"}}>
+        ⚠️ 股價自動抓取僅支援桌機瀏覽器。設定自動儲存於瀏覽器 localStorage。加碼效益為簡化試算，非投資建議。
+      </p>
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
