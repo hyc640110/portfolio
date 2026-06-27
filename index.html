@@ -129,7 +129,7 @@ textarea{width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(206,
 <!-- 借款設定 -->
 <div class="card card-orange">
   <p class="section-title" style="color:#ffb74d">🏦 信貸借款設定</p>
-  <div class="grid3">
+  <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:10px">
     <div>
       <label>借款金額（萬元）</label>
       <div style="display:flex;align-items:center;gap:4px">
@@ -141,6 +141,11 @@ textarea{width:100%;background:rgba(255,255,255,0.06);border:1px solid rgba(206,
       <label>年利率（%）</label>
       <input type="text" id="loanRate" value="3.5" onblur="update()" style="color:#ffb74d">
       <div class="presets" id="loanRatePresets"></div>
+    </div>
+    <div>
+      <label>貸款年限（年）</label>
+      <input type="number" id="loanYears" value="7" min="1" max="30" oninput="update()" style="color:#ffb74d">
+      <div class="presets" id="loanYearsPresets"></div>
     </div>
     <div id="loanSummary" style="font-size:10px;color:#546e7a;display:flex;flex-direction:column;justify-content:center;gap:4px"></div>
   </div>
@@ -450,8 +455,19 @@ function update(){
   var ld=g('loanDetail');
   if(loan>0){
     ld.style.display='';
-    ld.innerHTML='每月利息約 <b style="color:#ef9a9a">'+fmt(loanInterest/12)+'</b>'
-      +'　十年總利息 <b style="color:#ef9a9a">'+fmt(loanInterest*10)+'</b>'
+    // Monthly payment (annuity formula)
+    var monthRate=loanRate/100/12;
+    var loanYears=val('loanYears')||7;
+    var months=loanYears*12;
+    var monthlyPayment=monthRate>0
+      ? loan*monthRate*Math.pow(1+monthRate,months)/(Math.pow(1+monthRate,months)-1)
+      : loan/months;
+    var totalPayment=monthlyPayment*months;
+    var totalInterestPaid=totalPayment-loan;
+    ld.innerHTML='每月還款 <b style="color:#ffb74d">'+fmt(monthlyPayment)+'</b>'
+      +'　每月利息約 <b style="color:#ef9a9a">'+fmt(loanInterest/12)+'</b>'
+      +'<br>'+loanYears+'年總還款 <b style="color:#ef9a9a">'+fmt(totalPayment)+'</b>'
+      +'　總利息 <b style="color:#ef9a9a">'+fmt(totalInterestPaid)+'</b>'
       +'　需年化報酬 &gt; <b style="color:#ffcc80">'+loanRate.toFixed(1)+'%</b> 才划算';
   } else { ld.style.display='none'; }
 
@@ -706,7 +722,7 @@ function getSettings(){
     pct631:val('pct631'), pctBond:val('pctBond'),
     addOnEnabled:addOnEnabled, addOnSource:addOnSource,
     addOnAmt:val('addOnAmt'), addOnDrop:val('addOnDrop'), addOnYear:val('addOnYear'),
-    loanAmount:val('loanAmount'), loanRate:parseFloat(g('loanRate').value)||3.5,
+    loanAmount:val('loanAmount'), loanRate:parseFloat(g('loanRate').value)||3.5, loanYears:val('loanYears')||7,
   };
 }
 
@@ -728,6 +744,7 @@ function applySettings(s){
   if(s.addOnYear!=null){ g('addOnYear').value=s.addOnYear; g('addOnYearLabel').textContent=s.addOnYear+'年'; }
   if(s.loanAmount!=null) g('loanAmount').value=s.loanAmount;
   if(s.loanRate!=null) g('loanRate').value=s.loanRate;
+  if(s.loanYears!=null) g('loanYears').value=s.loanYears;
   update();
 }
 
@@ -767,6 +784,7 @@ makePresets('addOnAmtPresets','addOnAmt',[{label:'50萬',val:50},{label:'100萬'
 makePresets('addOnDropPresets','addOnDrop',[{label:'-15%',val:15},{label:'-25%',val:25},{label:'-35%',val:35}],'%',true);
 makePresets('addOnYearPresets','addOnYear',[{label:'第1年',val:1},{label:'第2年',val:2},{label:'第3年',val:3}],'年',true);
 makePresets('loanRatePresets','loanRate',[{label:'2.5%',val:2.5},{label:'3%',val:3},{label:'3.5%',val:3.5},{label:'4%',val:4}],'%',false);
+makePresets('loanYearsPresets','loanYears',[{label:'3年',val:3},{label:'5年',val:5},{label:'7年',val:7},{label:'10年',val:10}],'年',false);
 
 // Mobile
 if(isMobile){ g('mobileBadge').style.display='block'; g('btn631').style.opacity=0.4; g('btn865').style.opacity=0.4; }
